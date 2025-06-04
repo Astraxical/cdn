@@ -1,0 +1,21 @@
+{
+    "manifest": {
+        "version": "1.0.0",
+        "name": "mahiro "
+    },
+    "background": {
+        "url": "https:\/\/i.imgur.com\/xrbpw7q.jpg"
+    },
+    "fonts": {},
+    "simple_colors": {
+        "mention_highlight": -16181,
+        "accent": -16181,
+        "background": -16181,
+        "background_secondary": -16181
+    },
+    "colors": {
+        "link": -16181
+    },
+    "drawable_tints": {},
+    "raws": {}
+}
