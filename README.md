@@ -88,34 +88,20 @@ The system uses three SQLite databases:
 
 All databases are stored in the `data/` directory and managed as part of a Git data branch.
 
-## Data Branch Management
+## Entry Point and 404 Handling
 
-The system automatically syncs data to the Git repository every hour via a cron job. Here's how to set it up:
+The system uses `index.html` as the main entry point with automatic 404 redirect handling:
 
-### Setting up Hourly Sync
+- **Main Entry Point**: `index.html` - Modern responsive interface
+- **404 Handling**: All non-existent URLs redirect to `index.html`
+- **API Access**: Available at `/api.php` endpoints
 
-1. **Run the cron setup script:**
-   ```bash
-   ./setup_cron.sh
-   ```
+### HTML Features
 
-2. **Or manually add to your crontab:**
-   ```bash
-   # Edit crontab
-   crontab -e
-   
-   # Add this line (replace with your actual path):
-   0 * * * * cd /path/to/your/cdn && php sync_data_branch.php
-   ```
-
-### Manual Sync
-
-You can also trigger a sync manually:
-```bash
-php sync_data_branch.php
-```
-
-This will commit and push the data files to your Git repository if changes have occurred within the sync interval.
+- Responsive design with file upload and link shortening
+- Live statistics display (files count, links count)
+- Navigation to all major functions
+- Auto-sync status information
 
 ### GitHub Actions Workflow
 
