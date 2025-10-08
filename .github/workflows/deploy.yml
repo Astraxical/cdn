@@ -41,12 +41,40 @@ jobs:
         composer install --no-dev --optimize-autoloader
       continue-on-error: true
 
-    - name: Setup MySQL database
+    - name: Setup databases
       run: |
+        # Setup MySQL (for backward compatibility)
         sleep 10
         mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "CREATE DATABASE IF NOT EXISTS filehosting;"
         mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "USE filehosting; CREATE TABLE IF NOT EXISTS links (id INT AUTO_INCREMENT PRIMARY KEY, short_code VARCHAR(20) UNIQUE NOT NULL, long_url TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_access TIMESTAMP NULL, clicks INT DEFAULT 0);"
         mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "USE filehosting; CREATE TABLE IF NOT EXISTS files (id INT AUTO_INCREMENT PRIMARY KEY, file_id VARCHAR(24) NOT NULL, filename VARCHAR(255) NOT NULL, storage_type ENUM('local', 'mongodb', 'git') DEFAULT 'local', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+        
+        # Setup data branch SQLite databases
+        php -r "
+        require_once 'config.php';
+        
+        // Create data directory
+        if (!is_dir(DATA_DIR)) {
+            mkdir(DATA_DIR, 0755, true);
+        }
+        
+        // Initialize files database
+        \$filesDb = new PDO('sqlite:' . FILES_DB_PATH);
+        \$filesDb->exec('CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, content BLOB, content_type TEXT, size INTEGER, uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP, original_name TEXT);');
+        
+        // Initialize links database
+        \$linksDb = new PDO('sqlite:' . LINKS_DB_PATH);
+        \$linksDb->exec('CREATE TABLE IF NOT EXISTS links (id INTEGER PRIMARY KEY AUTOINCREMENT, short_code TEXT UNIQUE NOT NULL, long_url TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, last_access DATETIME, clicks INTEGER DEFAULT 0, title TEXT);');
+        
+        // Initialize activity database
+        \$activityDb = new PDO('sqlite:' . ACTIVITY_DB_PATH);
+        \$activityDb->exec('CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, entity_type TEXT, entity_id INTEGER, details TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP);');
+        
+        echo 'Data branch SQLite databases created:\\n';
+        echo '- Files: ' . FILES_DB_PATH . \"\\n\";
+        echo '- Links: ' . LINKS_DB_PATH . \"\\n\";
+        echo '- Activity: ' . ACTIVITY_DB_PATH . \"\\n\";
+        "
       env:
         MYSQL_PWD: rootpassword
 

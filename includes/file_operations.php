@@ -1,16 +1,15 @@
 <?php
-// File upload/download functionality
+// File upload/download functionality with Data Branch Storage
 require_once 'config.php';
 require_once 'includes/functions.php';
-require_once 'includes/storage.php';
 
 /**
  * Upload a file to specified storage
  * @param array $file File array from $_FILES
- * @param string $storageType Type of storage ('local', 'mongodb', 'git')
+ * @param string $storageType Type of storage ('sqlite', with data branch)
  * @return array Result of the upload operation
  */
-function uploadFile($file, $storageType = 'local') {
+function uploadFile($file, $storageType = 'sqlite') {
     if (!validateFile($file)) {
         return [
             'success' => false,
@@ -23,263 +22,129 @@ function uploadFile($file, $storageType = 'local') {
     $content = file_get_contents($file['tmp_name']);
     
     switch ($storageType) {
-        case 'mongodb':
-            $storage = new MongoFileStorage();
-            return $storage->storeFile($originalName, $content, $contentType);
-            
-        case 'git':
-            $storage = new GitFileStorage();
-            return $storage->addFile($originalName, $content);
-            
-        case 'local':
+        case 'sqlite':
         default:
-            $uploadDir = UPLOAD_DIR;
-            
-            if (!is_dir($uploadDir)) {
-                mkdir($uploadDir, 0755, true);
-            }
-            
-            $hashedName = hashFilename($originalName);
-            $targetPath = $uploadDir . $hashedName;
-            
-            if (move_uploaded_file($file['tmp_name'], $targetPath)) {
-                // Store reference in MySQL
-                $pdo = connectDatabase();
-                if ($pdo) {
-                    try {
-                        $stmt = $pdo->prepare("INSERT INTO files (file_id, filename, storage_type) VALUES (?, ?, 'local')");
-                        $stmt->execute([$hashedName, $originalName]);
-                    } catch (PDOException $e) {
-                        error_log("Failed to store file reference in MySQL: " . $e->getMessage());
-                    }
-                }
-                
-                return [
-                    'success' => true,
-                    'filename' => $originalName,
-                    'hashedName' => $hashedName,
-                    'url' => 'http://' . $_SERVER['HTTP_HOST'] . '/' . $targetPath
-                ];
-            } else {
-                return [
-                    'success' => false,
-                    'error' => 'Failed to move uploaded file'
-                ];
-            }
+            $storage = getDataBranchStorage();
+            return $storage->storeFile(hashFilename($originalName), $content, $contentType, $originalName);
     }
 }
 
 /**
  * Download a file from specified storage
  * @param string $fileId ID of the file to download
- * @param string $storageType Type of storage ('local', 'mongodb', 'git')
+ * @param string $storageType Type of storage ('sqlite', with data branch)
  * @return array File data or error
  */
-function downloadFile($fileId, $storageType = 'local') {
+function downloadFile($fileId, $storageType = 'sqlite') {
     switch ($storageType) {
-        case 'mongodb':
-            $storage = new MongoFileStorage();
-            return $storage->retrieveFile($fileId);
-            
-        case 'git':
-            $storage = new GitFileStorage();
-            return $storage->getFile($fileId);
-            
-        case 'local':
+        case 'sqlite':
         default:
-            $filePath = UPLOAD_DIR . $fileId;
-            
-            if (file_exists($filePath)) {
-                return [
-                    'success' => true,
-                    'filename' => basename($filePath),
-                    'content' => file_get_contents($filePath),
-                    'contentType' => mime_content_type($filePath) ?: 'application/octet-stream',
-                    'size' => filesize($filePath)
-                ];
-            } else {
-                return [
-                    'success' => false,
-                    'error' => 'File not found'
-                ];
-            }
+            $storage = getDataBranchStorage();
+            return $storage->retrieveFile($fileId);
     }
 }
 
 /**
- * List all files from all storage types
- * @return array Combined list of files from all storage types
+ * List all files from data branch storage
+ * @return array List of files from data branch storage
  */
 function listAllFiles() {
     $files = [];
     
-    // Get local files
-    $uploadDir = UPLOAD_DIR;
-    if (is_dir($uploadDir)) {
-        $fileList = scandir($uploadDir);
-        foreach ($fileList as $file) {
-            if ($file !== '.' && $file !== '..') {
-                $filePath = $uploadDir . $file;
-                if (is_file($filePath)) {
-                    $files[] = [
-                        'id' => $file,
-                        'filename' => $file,
-                        'size' => filesize($filePath),
-                        'date' => date('Y-m-d H:i:s', filemtime($filePath)),
-                        'url' => 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost:8000') . '/' . $filePath,
-                        'storage_type' => 'local'
-                    ];
-                }
-            }
-        }
-    }
-    
-    // Get MongoDB files
+    // Get files from data branch storage
     try {
-        $mongoStorage = new MongoFileStorage();
-        $mongoResult = $mongoStorage->listFiles();
-        if ($mongoResult['success']) {
-            foreach ($mongoResult['files'] as $file) {
+        $storage = getDataBranchStorage();
+        $result = $storage->listFiles();
+        if ($result['success']) {
+            foreach ($result['files'] as $file) {
                 $files[] = [
                     'id' => $file['id'],
-                    'filename' => $file['filename'],
+                    'filename' => $file['original_name'] ?? $file['filename'],
                     'size' => $file['size'],
-                    'date' => $file['uploadedAt'] ? $file['uploadedAt']->toDateTime()->format('Y-m-d H:i:s') : null,
-                    'storage_type' => 'mongodb'
+                    'date' => $file['uploaded_at'],
+                    'storage_type' => 'sqlite_data_branch'
                 ];
             }
         }
     } catch (Exception $e) {
-        error_log("Error fetching MongoDB files: " . $e->getMessage());
-    }
-    
-    // Get Git files
-    try {
-        $gitStorage = new GitFileStorage();
-        $gitResult = $gitStorage->listFiles();
-        if ($gitResult['success']) {
-            foreach ($gitResult['files'] as $file) {
-                $files[] = [
-                    'id' => md5($file['filename']),
-                    'filename' => $file['filename'],
-                    'size' => $file['size'],
-                    'date' => null, // Git doesn't provide easy file date access without additional commands
-                    'storage_type' => 'git'
-                ];
-            }
-        }
-    } catch (Exception $e) {
-        error_log("Error fetching Git files: " . $e->getMessage());
+        error_log("Error fetching data branch files: " . $e->getMessage());
     }
     
     return $files;
 }
 
 /**
- * Delete a file from specified storage
+ * Delete a file from data branch storage
  * @param string $fileId ID of the file to delete
- * @param string $storageType Type of storage ('local', 'mongodb', 'git')
+ * @param string $storageType Type of storage ('sqlite', with data branch)
  * @return array Result of the delete operation
  */
-function deleteFile($fileId, $storageType = 'local') {
+function deleteFile($fileId, $storageType = 'sqlite') {
     switch ($storageType) {
-        case 'mongodb':
-            $storage = new MongoFileStorage();
-            return $storage->deleteFile($fileId);
-            
-        case 'git':
-            // For Git, we'll just remove the file from the repo
-            $repoPath = GIT_REPO_PATH;
-            $filePath = $repoPath . '/' . $fileId;
-            
-            if (file_exists($filePath)) {
-                // Remove from filesystem
-                $unlinkResult = unlink($filePath);
-                
-                if ($unlinkResult) {
-                    // Remove from git tracking
-                    $gitResult = executeGitCommand("git rm " . escapeshellarg($fileId));
-                    
-                    if ($gitResult['return_code'] === 0) {
-                        // Commit the removal
-                        $commitResult = executeGitCommand("git commit -m \"Remove file: {$fileId}\"");
-                        
-                        if ($commitResult['return_code'] === 0 || strpos(implode(' ', $commitResult['output']), 'nothing to commit') !== false) {
-                            // Remove reference from MySQL
-                            $pdo = connectDatabase();
-                            if ($pdo) {
-                                try {
-                                    $stmt = $pdo->prepare("DELETE FROM files WHERE filename = ? AND storage_type = 'git'");
-                                    $stmt->execute([$fileId]);
-                                } catch (PDOException $e) {
-                                    error_log("Failed to remove file reference from MySQL: " . $e->getMessage());
-                                }
-                            }
-                            
-                            return [
-                                'success' => true,
-                                'message' => 'File removed from Git repository'
-                            ];
-                        } else {
-                            return [
-                                'success' => false,
-                                'error' => 'Git commit failed after removal: ' . implode(' ', $commitResult['output'])
-                            ];
-                        }
-                    } else {
-                        return [
-                            'success' => false,
-                            'error' => 'Git rm failed: ' . implode(' ', $gitResult['output'])
-                        ];
-                    }
-                } else {
-                    return [
-                        'success' => false,
-                        'error' => 'Failed to remove file from filesystem'
-                    ];
-                }
-            } else {
-                return [
-                    'success' => false,
-                    'error' => 'File not found in Git repository'
-                ];
-            }
-            
-        case 'local':
+        case 'sqlite':
         default:
-            $filePath = UPLOAD_DIR . $fileId;
-            
-            if (file_exists($filePath)) {
-                $result = unlink($filePath);
-                
-                if ($result) {
-                    // Remove reference from MySQL
-                    $pdo = connectDatabase();
-                    if ($pdo) {
-                        try {
-                            $stmt = $pdo->prepare("DELETE FROM files WHERE file_id = ? AND storage_type = 'local'");
-                            $stmt->execute([$fileId]);
-                        } catch (PDOException $e) {
-                            error_log("Failed to remove file reference from MySQL: " . $e->getMessage());
-                        }
-                    }
-                    
-                    return [
-                        'success' => true,
-                        'message' => 'File deleted successfully'
-                    ];
-                } else {
-                    return [
-                        'success' => false,
-                        'error' => 'Failed to delete file'
-                    ];
-                }
-            } else {
-                return [
-                    'success' => false,
-                    'error' => 'File not found'
-                ];
-            }
+            $storage = getDataBranchStorage();
+            return $storage->deleteFile($fileId);
     }
+}
+
+/**
+ * Store a link in data branch storage
+ * @param string $shortCode The short code for the link
+ * @param string $longUrl The original URL
+ * @param string $title Optional title for the link
+ * @return array Result of the operation
+ */
+function storeLink($shortCode, $longUrl, $title = null) {
+    $storage = getDataBranchStorage();
+    return $storage->storeLink($shortCode, $longUrl, $title);
+}
+
+/**
+ * Retrieve a link from data branch storage
+ * @param string $shortCode The short code to look up
+ * @return array Link data or error
+ */
+function retrieveLink($shortCode) {
+    $storage = getDataBranchStorage();
+    return $storage->retrieveLink($shortCode);
+}
+
+/**
+ * List all links from data branch storage
+ * @return array List of links
+ */
+function listAllLinks() {
+    $links = [];
+    
+    try {
+        $storage = getDataBranchStorage();
+        $result = $storage->listLinks();
+        if ($result['success']) {
+            $links = $result['links'];
+        }
+    } catch (Exception $e) {
+        error_log("Error fetching data branch links: " . $e->getMessage());
+    }
+    
+    return $links;
+}
+
+/**
+ * Perform sync to data branch if needed
+ * @return array Result of the sync operation
+ */
+function performDataBranchSync() {
+    $storage = getDataBranchStorage();
+    return $storage->performSync();
+}
+
+/**
+ * Check if sync is needed
+ * @return bool True if sync is needed, false otherwise
+ */
+function isSyncNeeded() {
+    $storage = getDataBranchStorage();
+    return $storage->isSyncNeeded();
 }
 ?>

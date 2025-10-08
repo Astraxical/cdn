@@ -72,6 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
                     <label for="storage_type">Storage Type:</label>
                     <select name="storage_type" id="storage_type">
                         <option value="git" selected>Git Repository (Recommended for GitHub)</option>
+                        <option value="sqlite">SQLite Database (Separate data branch)</option>
                         <option value="local">Local Storage</option>
                         <option value="mongodb">MongoDB (Requires credentials)</option>
                     </select>

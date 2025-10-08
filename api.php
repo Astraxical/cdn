@@ -1,5 +1,5 @@
 <?php
-// API Endpoint
+// API Endpoint with Data Branch Storage
 require_once 'config.php';
 require_once 'includes/functions.php';
 require_once 'includes/file_operations.php';
@@ -10,12 +10,18 @@ header('Content-Type: application/json');
 $method = $_SERVER['REQUEST_METHOD'];
 $request = $_SERVER['REQUEST_URI'];
 
-// Parse URL to get API path
-$basePath = '/api';
+// Parse URL to get API path - updated for direct file access
+$basePath = '/api.php';
 if (strpos($request, $basePath) === 0) {
     $path = substr($request, strlen($basePath));
 } else {
-    $path = $request;
+    // For compatibility with routing systems that use /api/ format
+    $basePath = '/api';
+    if (strpos($request, $basePath) === 0) {
+        $path = substr($request, strlen($basePath));
+    } else {
+        $path = $request;
+    }
 }
 
 // Handle API routes
@@ -29,13 +35,28 @@ switch ($method) {
                 'endpoints' => [
                     'GET /files' => 'List all files',
                     'GET /file/{id}' => 'Get file by ID',
+                    'GET /stats' => 'Get system statistics',
                     'POST /upload' => 'Upload a file',
                     'POST /shorten' => 'Shorten a URL',
                     'GET /redirect/{code}' => 'Redirect using short code'
                 ]
             ]);
+        } elseif (preg_match('/^\/stats\/?$/', $path)) {
+            // Get system statistics
+            $files = listAllFiles();
+            $storage = getDataBranchStorage();
+            $links = $storage->listLinks();
+            
+            $stats = [
+                'total_files' => count($files),
+                'total_links' => $links['success'] ? count($links['links']) : 0,
+                'system_status' => 'operational',
+                'timestamp' => date('c')
+            ];
+            
+            echo json_encode($stats);
         } elseif (preg_match('/^\/files\/?/', $path)) {
-            // List files from all storage types
+            // List files from data branch storage
             $files = listAllFiles();
             
             // Format for API response
@@ -43,7 +64,7 @@ switch ($method) {
             foreach ($files as $file) {
                 $apiFiles[] = [
                     'id' => $file['id'],
-                    'name' => $file['filename'] ?? $file['name'],
+                    'name' => $file['filename'],
                     'size' => $file['size'],
                     'date' => $file['date'],
                     'storage_type' => $file['storage_type']
@@ -52,55 +73,36 @@ switch ($method) {
             
             echo json_encode(['files' => $apiFiles]);
         } elseif (preg_match('/^\/file\/(.+)$/', $path, $matches)) {
-            // Get specific file - need to know the storage type
+            // Get specific file
             $fileId = $matches[1];
-            $files = listAllFiles();
             
-            $targetFile = null;
-            foreach ($files as $file) {
-                if (($file['id'] === $fileId) || (md5($file['filename'] ?? $file['name'] ?? '') === $fileId)) {
-                    $targetFile = $file;
-                    break;
-                }
-            }
+            $storage = getDataBranchStorage();
+            $file = $storage->retrieveFile($fileId);
             
-            if ($targetFile) {
+            if ($file['success']) {
                 echo json_encode([
-                    'id' => $targetFile['id'],
-                    'name' => $targetFile['filename'] ?? $targetFile['name'],
-                    'size' => $targetFile['size'],
-                    'date' => $targetFile['date'],
-                    'storage_type' => $targetFile['storage_type']
+                    'id' => $fileId,
+                    'name' => $file['original_name'],
+                    'size' => $file['size'],
+                    'date' => $file['uploadedAt'],
+                    'storage_type' => 'sqlite_data_branch'
                 ]);
             } else {
                 http_response_code(404);
-                echo json_encode(['error' => 'File not found']);
+                echo json_encode(['error' => $file['error']]);
             }
         } elseif (preg_match('/^\/redirect\/(.+)$/', $path, $matches)) {
-            // Redirect using short code
+            // Redirect using short code - use data branch storage
             $shortCode = $matches[1];
-            $pdo = connectDatabase();
             
-            if ($pdo) {
-                try {
-                    $stmt = $pdo->prepare("SELECT long_url FROM links WHERE short_code = ?");
-                    $stmt->execute([$shortCode]);
-                    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-                    
-                    if ($result) {
-                        header('Location: ' . $result['long_url']);
-                        exit;
-                    } else {
-                        http_response_code(404);
-                        echo json_encode(['error' => 'Short link not found']);
-                    }
-                } catch (PDOException $e) {
-                    http_response_code(500);
-                    echo json_encode(['error' => 'Database error']);
-                }
+            $link = retrieveLink($shortCode);
+            
+            if ($link['success']) {
+                header('Location: ' . $link['longUrl']);
+                exit;
             } else {
-                http_response_code(500);
-                echo json_encode(['error' => 'Database connection failed']);
+                http_response_code(404);
+                echo json_encode(['error' => 'Short link not found']);
             }
         } else {
             http_response_code(404);
@@ -112,7 +114,7 @@ switch ($method) {
         if (preg_match('/^\/upload\/?$/', $path)) {
             // Upload file via API
             $response = [];
-            $storageType = $_POST['storage_type'] ?? 'local'; // Default to local storage
+            $storageType = $_POST['storage_type'] ?? DEFAULT_STORAGE_TYPE; // Use default which is 'sqlite'
             
             if (isset($_FILES['file'])) {
                 $uploadResult = uploadFile($_FILES['file'], $storageType);
@@ -122,17 +124,16 @@ switch ($method) {
                         'success' => true,
                         'message' => 'File uploaded successfully',
                         'file' => [
-                            'name' => $uploadResult['filename'] ?? $uploadResult['originalName'],
-                            'id' => $uploadResult['fileId'] ?? $uploadResult['hashedName'],
-                            'storage_type' => $storageType,
-                            'url' => $uploadResult['url'] ?? null
+                            'name' => $uploadResult['filename'],
+                            'id' => $uploadResult['fileId'],
+                            'storage_type' => $storageType
                         ]
                     ];
                 } else {
                     http_response_code(500);
                     $response = [
                         'success' => false,
-                        'message' => $uploadResult['error'] ?? 'Failed to upload file'
+                        'message' => $uploadResult['error']
                     ];
                 }
             } else {
@@ -163,17 +164,16 @@ switch ($method) {
                             'success' => true,
                             'message' => 'File uploaded successfully',
                             'file' => [
-                                'name' => $uploadResult['filename'] ?? $uploadResult['originalName'],
-                                'id' => $uploadResult['fileId'] ?? $uploadResult['hashedName'],
-                                'storage_type' => $storageType,
-                                'url' => $uploadResult['url'] ?? null
+                                'name' => $uploadResult['filename'],
+                                'id' => $uploadResult['fileId'],
+                                'storage_type' => $storageType
                             ]
                         ];
                     } else {
                         http_response_code(500);
                         $response = [
                             'success' => false,
-                            'message' => $uploadResult['error'] ?? 'Failed to upload file'
+                            'message' => $uploadResult['error']
                         ];
                     }
                 } else {
@@ -187,55 +187,38 @@ switch ($method) {
             
             echo json_encode($response);
         } elseif (preg_match('/^\/shorten\/?$/', $path)) {
-            // Shorten URL via API
+            // Shorten URL via API - use data branch storage
             $input = json_decode(file_get_contents('php://input'), true);
             $longUrl = isset($input['url']) ? filter_var($input['url'], FILTER_SANITIZE_URL) : null;
+            $title = isset($input['title']) ? $input['title'] : null;
             
             if ($longUrl && filter_var($longUrl, FILTER_VALIDATE_URL)) {
-                $pdo = connectDatabase();
+                $storage = getDataBranchStorage();
                 
-                if ($pdo) {
-                    try {
-                        $shortCode = generateShortCode();
-                        
-                        $stmt = $pdo->prepare("SELECT short_code FROM links WHERE short_code = ?");
-                        $stmt->execute([$shortCode]);
-                        
-                        while ($stmt->rowCount() > 0) {
-                            $shortCode = generateShortCode();
-                            $stmt = $pdo->prepare("SELECT short_code FROM links WHERE short_code = ?");
-                            $stmt->execute([$shortCode]);
-                        }
-                        
-                        $stmt = $pdo->prepare("INSERT INTO links (short_code, long_url, created_at) VALUES (?, ?, NOW())");
-                        $result = $stmt->execute([$shortCode, $longUrl]);
-                        
-                        if ($result) {
-                            $response = [
-                                'success' => true,
-                                'short_url' => 'http://' . $_SERVER['HTTP_HOST'] . '/r/' . $shortCode,
-                                'short_code' => $shortCode,
-                                'original_url' => $longUrl
-                            ];
-                        } else {
-                            http_response_code(500);
-                            $response = [
-                                'success' => false,
-                                'message' => 'Failed to create short URL'
-                            ];
-                        }
-                    } catch (PDOException $e) {
-                        http_response_code(500);
-                        $response = [
-                            'success' => false,
-                            'message' => 'Database error: ' . $e->getMessage()
-                        ];
-                    }
+                // Generate short code
+                $shortCode = generateShortCode();
+                
+                // Check if short code already exists and regenerate if needed
+                $link = $storage->retrieveLink($shortCode);
+                while ($link['success']) {
+                    $shortCode = generateShortCode();
+                    $link = $storage->retrieveLink($shortCode);
+                }
+                
+                $result = $storage->storeLink($shortCode, $longUrl, $title);
+                
+                if ($result['success']) {
+                    $response = [
+                        'success' => true,
+                        'short_url' => 'http://' . $_SERVER['HTTP_HOST'] . '/r/' . $shortCode,
+                        'short_code' => $shortCode,
+                        'original_url' => $longUrl
+                    ];
                 } else {
                     http_response_code(500);
                     $response = [
                         'success' => false,
-                        'message' => 'Database connection failed'
+                        'message' => $result['error']
                     ];
                 }
             } else {
@@ -258,25 +241,7 @@ switch ($method) {
             // Delete specific file
             $fileId = $matches[1];
             
-            // Need to determine storage type - for now, try to get file info from DB first
-            $pdo = connectDatabase();
-            $storageType = 'local'; // Default
-            
-            if ($pdo) {
-                try {
-                    $stmt = $pdo->prepare("SELECT storage_type FROM files WHERE file_id = ?");
-                    $stmt->execute([$fileId]);
-                    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-                    
-                    if ($result) {
-                        $storageType = $result['storage_type'];
-                    }
-                } catch (PDOException $e) {
-                    error_log("Error determining storage type: " . $e->getMessage());
-                }
-            }
-            
-            $deleteResult = deleteFile($fileId, $storageType);
+            $deleteResult = deleteFile($fileId, 'sqlite');
             
             if ($deleteResult['success']) {
                 echo json_encode([

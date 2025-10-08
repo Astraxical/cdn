@@ -1,7 +1,194 @@
 <?php
-// MongoDB integration for File Hosting Service
+// Storage implementations for File Hosting Service
 require_once 'config.php';
 require_once 'includes/functions.php';
+
+class SqliteFileStorage {
+    private $pdo;
+    
+    public function __construct() {
+        $this->pdo = connectSqlite();
+        if ($this->pdo) {
+            $this->initDatabase();
+        } else {
+            error_log('Failed to connect to SQLite database');
+        }
+    }
+    
+    /**
+     * Initialize the SQLite database tables
+     */
+    private function initDatabase() {
+        try {
+            // Create files table
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                content BLOB,
+                content_type TEXT,
+                size INTEGER,
+                uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )");
+            
+            // Create links table for URL shortening
+            $this->pdo->exec("CREATE TABLE IF NOT EXISTS links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                short_code TEXT UNIQUE NOT NULL,
+                long_url TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_access DATETIME,
+                clicks INTEGER DEFAULT 0
+            )");
+        } catch (PDOException $e) {
+            error_log("SQLite database initialization failed: " . $e->getMessage());
+        }
+    }
+    
+    /**
+     * Store a file in SQLite
+     * @param string $filename Name of the file
+     * @param string $content File content
+     * @param string $contentType MIME type of the file
+     * @return array Result with file ID or error
+     */
+    public function storeFile($filename, $content, $contentType = 'application/octet-stream') {
+        if (!$this->pdo) {
+            return [
+                'success' => false,
+                'error' => 'SQLite connection not available'
+            ];
+        }
+        
+        try {
+            $stmt = $this->pdo->prepare("INSERT INTO files (filename, content, content_type, size) VALUES (?, ?, ?, ?)");
+            $result = $stmt->execute([$filename, $content, $contentType, strlen($content)]);
+            
+            if ($result) {
+                $fileId = $this->pdo->lastInsertId();
+                return [
+                    'success' => true,
+                    'fileId' => $fileId,
+                    'filename' => $filename
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'error' => 'Failed to store file in SQLite'
+                ];
+            }
+        } catch (PDOException $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * Retrieve a file from SQLite
+     * @param int $fileId ID of the file to retrieve
+     * @return array File data or error
+     */
+    public function retrieveFile($fileId) {
+        if (!$this->pdo) {
+            return [
+                'success' => false,
+                'error' => 'SQLite connection not available'
+            ];
+        }
+        
+        try {
+            $stmt = $this->pdo->prepare("SELECT filename, content, content_type, size, uploaded_at FROM files WHERE id = ?");
+            $stmt->execute([$fileId]);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            if ($result) {
+                return [
+                    'success' => true,
+                    'filename' => $result['filename'],
+                    'content' => $result['content'],
+                    'contentType' => $result['content_type'],
+                    'size' => $result['size'],
+                    'uploadedAt' => $result['uploaded_at']
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'error' => 'File not found'
+                ];
+            }
+        } catch (PDOException $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * List all files in SQLite
+     * @return array List of files
+     */
+    public function listFiles() {
+        if (!$this->pdo) {
+            return [
+                'success' => false,
+                'error' => 'SQLite connection not available'
+            ];
+        }
+        
+        try {
+            $stmt = $this->pdo->query("SELECT id, filename, size, uploaded_at FROM files ORDER BY uploaded_at DESC");
+            $files = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            return [
+                'success' => true,
+                'files' => $files
+            ];
+        } catch (PDOException $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+    
+    /**
+     * Delete a file from SQLite
+     * @param int $fileId ID of the file to delete
+     * @return array Result of the operation
+     */
+    public function deleteFile($fileId) {
+        if (!$this->pdo) {
+            return [
+                'success' => false,
+                'error' => 'SQLite connection not available'
+            ];
+        }
+        
+        try {
+            $stmt = $this->pdo->prepare("DELETE FROM files WHERE id = ?");
+            $result = $stmt->execute([$fileId]);
+            
+            if ($stmt->rowCount() > 0) {
+                return [
+                    'success' => true,
+                    'message' => 'File deleted successfully'
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'error' => 'File not found'
+                ];
+            }
+        } catch (PDOException $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+}
 
 class MongoFileStorage {
     private $collection;

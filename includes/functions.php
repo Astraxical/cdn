@@ -90,6 +90,36 @@ function connectDatabase() {
 }
 
 /**
+ * Connect to files SQLite database
+ * @return PDO Connected database object or null on failure
+ */
+function connectFilesDb() {
+    try {
+        $pdo = new PDO("sqlite:" . FILES_DB_PATH);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        return $pdo;
+    } catch (PDOException $e) {
+        error_log("Files SQLite connection failed: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Connect to links SQLite database
+ * @return PDO Connected database object or null on failure
+ */
+function connectLinksDb() {
+    try {
+        $pdo = new PDO("sqlite:" . LINKS_DB_PATH);
+        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        return $pdo;
+    } catch (PDOException $e) {
+        error_log("Links SQLite connection failed: " . $e->getMessage());
+        return null;
+    }
+}
+
+/**
  * Execute Git command
  * @param string $command Git command to execute
  * @return array Result of the command execution
@@ -98,7 +128,7 @@ function executeGitCommand($command) {
     $output = [];
     $return_code = 0;
     
-    $full_command = 'cd ' . GIT_REPO_PATH . ' && ' . $command;
+    $full_command = 'cd ' . MAIN_REPO_PATH . ' && ' . $command;
     exec($full_command, $output, $return_code);
     
     return [
@@ -146,5 +176,13 @@ function initializeDatabase() {
         error_log("Database initialization error: " . $e->getMessage());
         return false;
     }
+}
+
+/**
+ * Get the data branch storage instance
+ */
+function getDataBranchStorage() {
+    require_once 'includes/data_branch_storage.php';
+    return new DataBranchStorage();
 }
 ?>

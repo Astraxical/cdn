@@ -1,10 +1,11 @@
-# File Hosting Service
+# File Hosting Service - Data Branch Storage
 
-A PHP-based file hosting service that leverages Git as the primary storage backend for GitHub deployment, with optional local storage, API functionality, and link shortening capabilities.
+A PHP-based file hosting service that stores all data in SQLite databases managed in a Git data branch, with automatic hourly sync. Perfect for GitHub deployment without external dependencies.
 
 ## Features
 
-- **Git Storage**: Primary storage in Git repository for GitHub deployment
+- **Data Branch Storage**: All files and links stored in SQLite databases managed in a Git data branch
+- **Automatic Sync**: Hourly Git commits and pushes to sync data changes
 - **File Upload/Download**: Easy file management through web interface or API
 - **Link Shortening**: Generate short URLs for easy sharing
 - **API Access**: RESTful API for programmatic access
@@ -13,38 +14,47 @@ A PHP-based file hosting service that leverages Git as the primary storage backe
 ## Requirements
 
 - PHP 7.4+
-- Git (for Git storage)
-- MySQL/MariaDB (optional, for link shortening)
+- Git (required for data branch management)
+- SQLite (for database storage)
 
 ## Installation
 
 1. Clone or download this repository
 2. Set up your web server to point to this directory
-3. (Optional) Configure your database settings in `config.php` for link shortening
-4. Run the Git repository setup: `php setup_git.php`
-5. Set up your web server to handle URL rewriting (see `.htaccess` file)
+3. Run the data branch setup: `php setup_data_branch.php`
+4. Set up your web server to handle URL rewriting (see `.htaccess` file)
+5. Configure hourly sync (see below)
 
 ## Configuration
 
 Update the `config.php` file with your specific settings:
 
 ```php
-// Database configuration (optional, for link shortening)
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'filehosting');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+// SQLite database configuration for data branch storage
+define('DATA_BRANCH_NAME', 'data');           // Branch for data storage
+define('DATA_DIR', __DIR__ . '/data');        // Main data directory
+define('FILES_DB_PATH', DATA_DIR . '/files.db');      // Files database
+define('LINKS_DB_PATH', DATA_DIR . '/links.db');      // Links database
+define('ACTIVITY_DB_PATH', DATA_DIR . '/activity.db'); // Activity logs
 
-// Git configuration - PRIMARY storage for GitHub deployment
-define('GIT_REPO_PATH', __DIR__ . '/git-repo');
+// Git configuration for main repository
+define('MAIN_REPO_PATH', __DIR__);  // Main code repository
 
 // File storage configuration
-define('UPLOAD_DIR', 'uploads/');  // Fallback storage
 define('MAX_FILE_SIZE', 10485760); // 10MB in bytes
 
-// Storage preference: 'git', 'local', or 'mongodb'
-// For GitHub deployment, Git is recommended as it persists in the repository
-define('DEFAULT_STORAGE_TYPE', 'git');
+// Security
+define('SECRET_KEY', 'your-secret-key-here');
+
+// API configuration
+define('API_BASE_URL', 'https://localhost/api');
+
+// Storage preference: Only 'sqlite' for this implementation
+define('DEFAULT_STORAGE_TYPE', 'sqlite');
+
+// Hourly sync configuration
+define('SYNC_INTERVAL', 3600); // 1 hour in seconds
+define('LAST_SYNC_FILE', DATA_DIR . '/last_sync.txt');
 ```
 
 ## Usage
@@ -68,22 +78,52 @@ The API provides endpoints for programmatic access:
 
 ## Storage Backends
 
-### Git Repository (Primary for GitHub)
-Files are stored in a Git repository, which persists in your GitHub repository when deployed. This is the recommended approach for GitHub deployment as files are version-controlled and persist with the codebase.
+### Data Branch Storage (Primary & Only Method)
+All data (files and links) is stored in SQLite databases that are managed in a Git branch. This approach combines the benefits of structured data storage with Git version control.
 
-### Local Storage
-Files are stored in the `uploads/` directory as configured in `config.php`. (May not persist in GitHub deployment depending on provider)
+The system uses three SQLite databases:
+- `files.db`: Stores uploaded files as BLOBs with metadata
+- `links.db`: Stores URL shortening mappings
+- `activity.db`: Stores system activity logs
 
-### MongoDB
-Files are stored in MongoDB as binary data with metadata. (Requires external database and credentials not suitable for public repositories)
+All databases are stored in the `data/` directory and managed as part of a Git data branch.
 
-## GitHub Actions Deployment
+## Data Branch Management
+
+The system automatically syncs data to the Git repository every hour via a cron job. Here's how to set it up:
+
+### Setting up Hourly Sync
+
+1. **Run the cron setup script:**
+   ```bash
+   ./setup_cron.sh
+   ```
+
+2. **Or manually add to your crontab:**
+   ```bash
+   # Edit crontab
+   crontab -e
+   
+   # Add this line (replace with your actual path):
+   0 * * * * cd /path/to/your/cdn && php sync_data_branch.php
+   ```
+
+### Manual Sync
+
+You can also trigger a sync manually:
+```bash
+php sync_data_branch.php
+```
+
+This will commit and push the data files to your Git repository if changes have occurred within the sync interval.
+
+### GitHub Actions Workflow
 
 The workflow in `.github/workflows/deploy.yml` provides automated deployment when code is pushed to the main branch. It includes:
 
 - PHP environment setup
-- Database initialization (optional)
-- Git repository setup for file storage
+- SQLite database initialization
+- Git repository setup
 - Application deployment
 
 ## Security Considerations

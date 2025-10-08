@@ -22,3 +22,23 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+composer.lock
+*.log
+.env
+config.php
+# Data directory should be managed in a separate branch
+data/
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+composer.lock
+*.log
+.env
+config.php
+# For data branch approach, you may want to ignore the entire data directory initially
+# and then selectively add it to a separate branch

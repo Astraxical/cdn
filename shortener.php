@@ -1,7 +1,8 @@
 <?php
-// Link Shortener Page
+// Link Shortener Page with Data Branch Storage
 require_once 'config.php';
 require_once 'includes/functions.php';
+require_once 'includes/file_operations.php';
 
 $message = '';
 $error = '';
@@ -10,41 +11,28 @@ $shortenedUrl = '';
 // Handle link shortening
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['long_url'])) {
     $longUrl = filter_var($_POST['long_url'], FILTER_SANITIZE_URL);
+    $title = $_POST['title'] ?? null;
     
     if (filter_var($longUrl, FILTER_VALIDATE_URL)) {
-        $pdo = connectDatabase();
+        $storage = getDataBranchStorage();
         
-        if ($pdo) {
-            try {
-                // Generate short code
-                $shortCode = generateShortCode();
-                
-                // Check if short code already exists
-                $stmt = $pdo->prepare("SELECT short_code FROM links WHERE short_code = ?");
-                $stmt->execute([$shortCode]);
-                
-                // Regenerate if exists (unlikely but possible)
-                while ($stmt->rowCount() > 0) {
-                    $shortCode = generateShortCode();
-                    $stmt = $pdo->prepare("SELECT short_code FROM links WHERE short_code = ?");
-                    $stmt->execute([$shortCode]);
-                }
-                
-                // Insert the new link
-                $stmt = $pdo->prepare("INSERT INTO links (short_code, long_url, created_at) VALUES (?, ?, NOW())");
-                $result = $stmt->execute([$shortCode, $longUrl]);
-                
-                if ($result) {
-                    $shortenedUrl = 'http://' . $_SERVER['HTTP_HOST'] . '/r/' . $shortCode;
-                    $message = "Link shortened successfully!";
-                } else {
-                    $error = "Error creating shortened link.";
-                }
-            } catch (PDOException $e) {
-                $error = "Database error: " . $e->getMessage();
-            }
+        // Generate short code
+        $shortCode = generateShortCode();
+        
+        // Check if short code already exists and regenerate if needed
+        $link = $storage->retrieveLink($shortCode);
+        while ($link['success']) {
+            $shortCode = generateShortCode();
+            $link = $storage->retrieveLink($shortCode);
+        }
+        
+        $result = $storage->storeLink($shortCode, $longUrl, $title);
+        
+        if ($result['success']) {
+            $shortenedUrl = 'http://' . $_SERVER['HTTP_HOST'] . '/r/' . $shortCode;
+            $message = "Link shortened successfully!";
         } else {
-            $error = "Could not connect to database.";
+            $error = "Error creating shortened link: " . $result['error'];
         }
     } else {
         $error = "Invalid URL provided.";
@@ -58,39 +46,25 @@ if (isset($_GET['url'])) {
         $_POST['long_url'] = $passedUrl;
         $longUrl = $passedUrl;
         
-        $pdo = connectDatabase();
+        $storage = getDataBranchStorage();
         
-        if ($pdo) {
-            try {
-                // Generate short code
-                $shortCode = generateShortCode();
-                
-                // Check if short code already exists
-                $stmt = $pdo->prepare("SELECT short_code FROM links WHERE short_code = ?");
-                $stmt->execute([$shortCode]);
-                
-                // Regenerate if exists
-                while ($stmt->rowCount() > 0) {
-                    $shortCode = generateShortCode();
-                    $stmt = $pdo->prepare("SELECT short_code FROM links WHERE short_code = ?");
-                    $stmt->execute([$shortCode]);
-                }
-                
-                // Insert the new link
-                $stmt = $pdo->prepare("INSERT INTO links (short_code, long_url, created_at) VALUES (?, ?, NOW())");
-                $result = $stmt->execute([$shortCode, $longUrl]);
-                
-                if ($result) {
-                    $shortenedUrl = 'http://' . $_SERVER['HTTP_HOST'] . '/r/' . $shortCode;
-                    $message = "Link shortened successfully!";
-                } else {
-                    $error = "Error creating shortened link.";
-                }
-            } catch (PDOException $e) {
-                $error = "Database error: " . $e->getMessage();
-            }
+        // Generate short code
+        $shortCode = generateShortCode();
+        
+        // Check if short code already exists and regenerate if needed
+        $link = $storage->retrieveLink($shortCode);
+        while ($link['success']) {
+            $shortCode = generateShortCode();
+            $link = $storage->retrieveLink($shortCode);
+        }
+        
+        $result = $storage->storeLink($shortCode, $longUrl);
+        
+        if ($result['success']) {
+            $shortenedUrl = 'http://' . $_SERVER['HTTP_HOST'] . '/r/' . $shortCode;
+            $message = "Link shortened successfully!";
         } else {
-            $error = "Could not connect to database.";
+            $error = "Error creating shortened link: " . $result['error'];
         }
     }
 }

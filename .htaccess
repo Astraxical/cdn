@@ -1,11 +1,21 @@
 RewriteEngine On
 
+# Don't rewrite API requests
+RewriteRule ^api/ - [L]
+
+# Don't rewrite redirect handler
+RewriteRule ^r/ - [L]
+
 # Redirect shortened URLs to the redirect handler
 RewriteRule ^r/([a-zA-Z0-9]+)$ r/index.php [QSA,L]
 
-# API routing
+# API routing (this is redundant but kept for clarity)
 RewriteRule ^api/(.*)$ api.php [QSA,L]
 
-# Other specific routes
+# Handle 404 errors by redirecting to index.html
+# But exclude existing files, directories, API, and redirect paths
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteCond %{REQUEST_URI} !^/r/
+RewriteRule ^(.*)$ index.html [L,R=302]
