@@ -1,0 +1,11 @@
+RewriteEngine On
+
+# Redirect shortened URLs to the redirect handler
+RewriteRule ^r/([a-zA-Z0-9]+)$ r/index.php [QSA,L]
+
+# API routing
+RewriteRule ^api/(.*)$ api.php [QSA,L]
+
+# Other specific routes
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d

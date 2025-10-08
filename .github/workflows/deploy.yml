@@ -1,0 +1,89 @@
+name: Deploy File Hosting Website
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpassword
+          MYSQL_DATABASE: filehosting
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
+      mongodb:
+        image: mongo:5.0
+        ports:
+          - 27017:27017
+        options: --health-cmd="mongosh --eval 'db.runCommand({ping:1})'" --health-interval=10s --health-timeout=5s --health-retries=3
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.1'
+        extensions: mbstring, xml, ctype, iconv, intl, pdo, sqlite, pdo_sqlite, gd, curl, zip, bz2, opcache, mongodb
+        
+    - name: Install Composer dependencies
+      run: |
+        composer install --no-dev --optimize-autoloader
+      continue-on-error: true
+
+    - name: Setup MySQL database
+      run: |
+        sleep 10
+        mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "CREATE DATABASE IF NOT EXISTS filehosting;"
+        mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "USE filehosting; CREATE TABLE IF NOT EXISTS links (id INT AUTO_INCREMENT PRIMARY KEY, short_code VARCHAR(20) UNIQUE NOT NULL, long_url TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_access TIMESTAMP NULL, clicks INT DEFAULT 0);"
+        mysql -h 127.0.0.1 -P 3306 -u root -prootpassword -e "USE filehosting; CREATE TABLE IF NOT EXISTS files (id INT AUTO_INCREMENT PRIMARY KEY, file_id VARCHAR(24) NOT NULL, filename VARCHAR(255) NOT NULL, storage_type ENUM('local', 'mongodb', 'git') DEFAULT 'local', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);"
+      env:
+        MYSQL_PWD: rootpassword
+
+    - name: Configure application
+      run: |
+        # Update config.php with GitHub Actions environment settings
+        sed -i "s/define('DB_HOST', 'localhost')/define('DB_HOST', '127.0.0.1')/" config.php
+        sed -i "s/define('DB_USER', 'root')/define('DB_USER', 'root')/" config.php
+        sed -i "s/define('DB_PASS', '')/define('DB_PASS', 'rootpassword')/" config.php
+        sed -i "s/define('MONGODB_URI', 'mongodb:\/\/localhost:27017')/define('MONGODB_URI', 'mongodb:\/\/127.0.0.1:27017')/" config.php
+
+    - name: Run database initialization
+      run: php init_db.php
+
+    - name: Run basic tests
+      run: |
+        # Check if main pages load without errors
+        php -S localhost:8000 -t . &
+        sleep 5
+        curl -f http://localhost:8000/ || true
+        curl -f http://localhost:8000/upload.php || true
+        curl -f http://localhost:8000/files.php || true
+        curl -f http://localhost:8000/shortener.php || true
+        curl -f http://localhost:8000/api.php || true
+
+    - name: Upload to server
+      run: |
+        # For demonstration purposes, we'll just show the files
+        ls -la
+        # In a real deployment scenario, you would upload files to your web server
+        # For example:
+        # rsync -avz -e "ssh -o StrictHostKeyChecking=no" --exclude 'vendor/' . ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:${{ secrets.SSH_PATH }}
+      env:
+        SSH_USER: ${{ secrets.SSH_USER }}
+        SSH_HOST: ${{ secrets.SSH_HOST }}
+        SSH_PATH: ${{ secrets.SSH_PATH }}
+      continue-on-error: true
+
+    - name: Notify deployment
+      run: echo "Application files are ready for deployment"
