@@ -2,9 +2,9 @@ name: Test and Deploy File Hosting Service
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ dev/center ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ dev/center ]
 
 jobs:
   test:
