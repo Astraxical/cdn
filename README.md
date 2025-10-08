@@ -1,125 +1,101 @@
-# File Hosting Service - Data Branch Storage
+# GitFile Hosting Service
 
-A PHP-based file hosting service that stores all data in SQLite databases managed in a Git data branch, with automatic hourly sync. Perfect for GitHub deployment without external dependencies.
+A web-based file hosting service that allows users to upload files, import from Git repositories, and shorten URLs. The service is built with Python Flask backend, SQLite databases stored in a Git branch for version-controlled data storage, and a modern web frontend.
 
 ## Features
 
-- **Data Branch Storage**: All files and links stored in SQLite databases managed in a Git data branch
-- **Automatic Sync**: Hourly Git commits and pushes to sync data changes
-- **File Upload/Download**: Easy file management through web interface or API
-- **Link Shortening**: Generate short URLs for easy sharing
-- **API Access**: RESTful API for programmatic access
-- **GitHub Actions Deployment**: Automated deployment workflow
+- File upload and hosting with SQLite storage
+- Import files directly from Git repositories
+- URL shortening service
+- Web-based user interface
+- Responsive design
+- Version-controlled data storage with Git
+- Activity logging and tracking
 
-## Requirements
+## Architecture
 
-- PHP 7.4+
-- Git (required for data branch management)
-- SQLite (for database storage)
+- **Frontend**: HTML/CSS/JavaScript with Bootstrap
+- **Backend**: Python Flask API
+- **Database**: SQLite databases with Git-based version control
+- **Data Storage**: Files and metadata stored in SQLite files in the `data_branch` directory
+- **Deployment**: Docker container with GitHub Actions
 
-## Installation
+## Setup Instructions
 
-1. Clone or download this repository
-2. Set up your web server to point to this directory
-3. Run the data branch setup: `php setup_data_branch.php`
-4. Set up your web server to handle URL rewriting (see `.htaccess` file)
-5. Configure hourly sync (see below)
+### Prerequisites
 
-## Configuration
+- Python 3.11+
+- Git
+- Docker (for containerized deployment)
 
-Update the `config.php` file with your specific settings:
+### Local Development
 
-```php
-// SQLite database configuration for data branch storage
-define('DATA_BRANCH_NAME', 'data');           // Branch for data storage
-define('DATA_DIR', __DIR__ . '/data');        // Main data directory
-define('FILES_DB_PATH', DATA_DIR . '/files.db');      // Files database
-define('LINKS_DB_PATH', DATA_DIR . '/links.db');      // Links database
-define('ACTIVITY_DB_PATH', DATA_DIR . '/activity.db'); // Activity logs
+1. Install Python dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-// Git configuration for main repository
-define('MAIN_REPO_PATH', __DIR__);  // Main code repository
+2. Run the application:
+   ```bash
+   python app.py
+   ```
 
-// File storage configuration
-define('MAX_FILE_SIZE', 10485760); // 10MB in bytes
+3. Access the application at `http://localhost:5000`
 
-// Security
-define('SECRET_KEY', 'your-secret-key-here');
+4. The SQLite databases will be created in the `data_branch/` directory and automatically committed to Git with each change
 
-// API configuration
-define('API_BASE_URL', 'https://localhost/api');
+### Production Deployment
 
-// Storage preference: Only 'sqlite' for this implementation
-define('DEFAULT_STORAGE_TYPE', 'sqlite');
+The application is configured to deploy using GitHub Actions. The workflow automatically:
+- Tests the application on pull requests
+- Builds a Docker image on pushes to main
+- Runs basic functionality tests
 
-// Hourly sync configuration
-define('SYNC_INTERVAL', 3600); // 1 hour in seconds
-define('LAST_SYNC_FILE', DATA_DIR . '/last_sync.txt');
-```
+## API Endpoints
 
-## Usage
+### File Operations
+- `GET /` - Home endpoint
+- `POST /upload` - Upload a file
+- `GET /download/<file_id>` - Download a file
+- `GET /files` - List all files
+- `DELETE /delete/<file_id>` - Delete a file
 
-### Web Interface
+### Git Integration
+- `POST /git/import` - Import files from a Git repository
+- `GET /git/files` - List files imported from Git
 
-1. Visit the main page to upload files (Git storage is recommended for GitHub)
-2. Navigate to the "Files" page to view and manage your files
-3. Use the "Link Shortener" page to create short URLs
+### Link Shortener
+- `POST /shorten` - Shorten a URL
+- `GET /s/<short_code>` - Redirect to the original URL
+- `GET /links` - List all shortened links
+- `DELETE /links/<short_code>` - Delete a shortened link
 
-### API
+## Data Storage
 
-The API provides endpoints for programmatic access:
+All data is stored in SQLite databases located in the `data_branch/` directory:
+- `files.sqlite` - Stores file metadata and content
+- `links.sqlite` - Stores URL shortener data
+- `activity.sqlite` - Stores system activity logs
 
-- `GET /api/` - API information
-- `GET /api/files` - List all files
-- `GET /api/file/{id}` - Get specific file
-- `POST /api/upload` - Upload a file
-- `POST /api/shorten` - Shorten a URL
-- `DELETE /api/file/{id}` - Delete a file
+All changes to these databases are automatically committed to Git, providing version control for your data.
 
-## Storage Backends
+## Technologies Used
 
-### Data Branch Storage (Primary & Only Method)
-All data (files and links) is stored in SQLite databases that are managed in a Git branch. This approach combines the benefits of structured data storage with Git version control.
+- Flask: Web framework
+- SQLite: Database
+- Git: Version control for data
+- Bootstrap: Frontend framework
+- Docker: Containerization
+- GitHub Actions: CI/CD
 
-The system uses three SQLite databases:
-- `files.db`: Stores uploaded files as BLOBs with metadata
-- `links.db`: Stores URL shortening mappings
-- `activity.db`: Stores system activity logs
+## Contributing
 
-All databases are stored in the `data/` directory and managed as part of a Git data branch.
-
-## Entry Point and 404 Handling
-
-The system uses `index.html` as the main entry point with automatic 404 redirect handling:
-
-- **Main Entry Point**: `index.html` - Modern responsive interface
-- **404 Handling**: All non-existent URLs redirect to `index.html`
-- **API Access**: Available at `/api.php` endpoints
-
-### HTML Features
-
-- Responsive design with file upload and link shortening
-- Live statistics display (files count, links count)
-- Navigation to all major functions
-- Auto-sync status information
-
-### GitHub Actions Workflow
-
-The workflow in `.github/workflows/deploy.yml` provides automated deployment when code is pushed to the main branch. It includes:
-
-- PHP environment setup
-- SQLite database initialization
-- Git repository setup
-- Application deployment
-
-## Security Considerations
-
-- Validate file types and sizes
-- Implement authentication for sensitive operations
-- Use HTTPS in production
-- For production, consider using environment variables for sensitive data
-- Git storage is safe for public repositories as it stores only the files themselves
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+This project is licensed under the MIT License - see the LICENSE file for details.
